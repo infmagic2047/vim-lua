@@ -26,8 +26,7 @@ let s:open_patt = '\C\%(\<\%(function\|if\|repeat\|do\)\>\|(\|{\)'
 let s:middle_patt = '\C\<\%(else\|elseif\)\>'
 let s:close_patt = '\C\%(\<\%(end\|until\)\>\|)\|}\)'
 
-let s:anon_func_start = '\S\+\s*[({].*\<function\s*(.*)\s*$'
-let s:anon_func_end = '\<end\%(\s*[)}]\)\+'
+let s:starts_with_end = '^\s*\%(' . s:close_patt . '\|' . s:middle_patt . '\)'
 
 " Expression used to check whether we should skip a match with searchpair().
 let s:skip_expr = "synIDattr(synID(line('.'),col('.'),1),'name') =~# 'luaComment\\|luaString'"
@@ -75,37 +74,24 @@ function GetLuaIndent()
   " count how many blocks the previous line opens
   call cursor(v:lnum, 1)
   let num_prev_opens = searchpair(s:open_patt, s:middle_patt, s:close_patt,
-        \ 'mrb', s:skip_expr, prev_line)
+        \ 'mb', s:skip_expr, prev_line)
 
   " count how many blocks the current line closes
   call cursor(prev_line, col([prev_line,'$']))
   let num_cur_closes = searchpair(s:open_patt, s:middle_patt, s:close_patt,
-        \ 'mr', s:skip_expr, v:lnum)
+        \ 'm', s:skip_expr, v:lnum)
 
-  let i = num_prev_opens - num_cur_closes
-
-  " if the previous line closed a paren, outdent (except with anon funcs)
+  " count how many blocks the previous line closes
   call cursor(prev_line - 1, col([prev_line - 1, '$']))
-  let num_prev_closed_parens = searchpair('(', '', ')', 'mr', s:skip_expr, prev_line)
-  if num_prev_closed_parens > 0 && contents_prev !~# s:anon_func_end
+  let num_prev_closes = searchpair(s:open_patt, s:middle_patt, s:close_patt,
+        \ 'm', s:skip_expr, prev_line)
+
+  let i = num_prev_opens
+  if num_cur_closes && contents_cur =~# s:starts_with_end
     let i -= 1
   endif
-
-  " if this line closed a paren, indent (except with anon funcs)
-  call cursor(prev_line, col([prev_line, '$']))
-  let num_cur_closed_parens = searchpair('(', '', ')', 'mr', s:skip_expr, v:lnum)
-  if num_cur_closed_parens > 0 && contents_cur !~# s:anon_func_end
-    let i += 1
-  endif
-
-  " special case: call(with, {anon = function() -- should indent only once
-  if i > 1 && contents_prev =~# s:anon_func_start
-    let i = 1
-  endif
-
-  " special case: end}) -- end of call w/ anon func should outdent only once
-  if i < -1 && contents_cur =~# s:anon_func_end
-    let i = -1
+  if num_prev_closes && contents_prev !~# s:starts_with_end
+    let i -= 1
   endif
 
   " restore cursor
